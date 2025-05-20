@@ -1,4 +1,4 @@
-using Devices.API.DTO;
+using Devices.API.DTO.EmployeeDTOs;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,7 +14,7 @@ public class EmployeesController
     {
         _context = context;
     }
-    
+
     [HttpGet]
     public async Task<IResult> GetAllEmployees(CancellationToken cancellationToken)
     {
@@ -24,7 +24,7 @@ public class EmployeesController
                 .Include(e => e.Person)
                 .Select(e => new ShortEmployeeDTO(e.Id, e.Person.FirstName + " " + e.Person.LastName))
                 .ToListAsync(cancellationToken);
-            
+
             return Results.Ok(shortInfoEmployees);
         }
         catch (Exception ex)
@@ -49,23 +49,21 @@ public class EmployeesController
                 .Include(e => e.Position)
                 .Where(e => e.Id == id)
                 .Select(e => new EmployeeByIdDTO(
-                    new EmployeeDTO(
-                        e.Person.PassportNumber,
-                        e.Person.FirstName,
-                        e.Person.MiddleName ?? string.Empty,
-                        e.Person.LastName,
-                        e.Person.PhoneNumber,
-                        e.Person.Email
-                    ),
+                    e.Person.PassportNumber,
+                    e.Person.FirstName,
+                    e.Person.MiddleName ?? string.Empty,
+                    e.Person.LastName,
+                    e.Person.PhoneNumber,
+                    e.Person.Email,
                     e.Salary,
                     new PositionDTO(e.Position.Id, e.Position.Name),
                     e.HireDate
                 ))
                 .FirstOrDefaultAsync(cancellationToken);
-            
+
             if (employee == null)
                 return Results.NotFound();
-            
+
             return Results.Ok(employee);
         }
         catch (Exception ex)

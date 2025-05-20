@@ -1,0 +1,8 @@
+namespace Devices.API.DTO.DeviceDTOs;
+
+public record DeviceDTO(
+    string Name,
+    string DeviceTypeName,
+    bool IsEnabled,
+    Dictionary<string, string> AdditionalProperties
+    );
