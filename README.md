@@ -1,0 +1,3 @@
+Before launching the application, please add some additional lines to your appsettings.json file. Those are "ConnectionStrings":{} inside of which you specify your connection string in format "DefaultConnection" : "xxxxx". Instead of xxxxx you should paste your connection string to your mssql database.
+
+I have chosen not to split the project in parts, becaus to me it is more time consuming to create new projects, then add new references between then. Also adding new projects adds new need to edit .sln file which I don't realy like to d because for me it doesn't always end with a happy end). I've even deleted previous project repo once because of that.
