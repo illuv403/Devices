@@ -131,7 +131,7 @@ public class DevicesController
 
             if (rowsAffected != -1)
             {
-                return Results.Created();
+                return Results.Created($"api/devices/{newDevice.Id}", $"Device with id {newDevice.Id} was added successfully.");
             }
             else
             {
