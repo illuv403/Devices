@@ -15,6 +15,8 @@ public partial class DevicesDbContext : DbContext
     {
     }
 
+    public virtual DbSet<Account> Accounts { get; set; }
+
     public virtual DbSet<Device> Devices { get; set; }
 
     public virtual DbSet<DeviceEmployee> DeviceEmployees { get; set; }
@@ -27,8 +29,34 @@ public partial class DevicesDbContext : DbContext
 
     public virtual DbSet<Position> Positions { get; set; }
 
+    public virtual DbSet<Role> Roles { get; set; }
+    
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<Account>(entity =>
+        {
+            entity.ToTable("Account");
+
+            entity.HasIndex(e => e.Username, "UQ__Account__536C85E474CA2AE2").IsUnique();
+
+            entity.Property(e => e.Password)
+                .HasMaxLength(100)
+                .IsUnicode(false);
+            entity.Property(e => e.Username)
+                .HasMaxLength(100)
+                .IsUnicode(false);
+
+            entity.HasOne(d => d.Employee).WithMany(p => p.Accounts)
+                .HasForeignKey(d => d.EmployeeId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Account_Employee");
+
+            entity.HasOne(d => d.Role).WithMany(p => p.Accounts)
+                .HasForeignKey(d => d.RoleId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Account_Role");
+        });
+
         modelBuilder.Entity<Device>(entity =>
         {
             entity.ToTable("Device");
@@ -68,7 +96,7 @@ public partial class DevicesDbContext : DbContext
         {
             entity.ToTable("DeviceType");
 
-            entity.HasIndex(e => e.Name, "UQ__DeviceTy__737584F6BDB73082").IsUnique();
+            entity.HasIndex(e => e.Name, "UQ__DeviceTy__737584F6FB116A90").IsUnique();
 
             entity.Property(e => e.Name)
                 .HasMaxLength(100)
@@ -97,11 +125,11 @@ public partial class DevicesDbContext : DbContext
         {
             entity.ToTable("Person");
 
-            entity.HasIndex(e => e.PassportNumber, "UQ__Person__45809E710D566C99").IsUnique();
+            entity.HasIndex(e => e.PassportNumber, "UQ__Person__45809E718A42E7AD").IsUnique();
 
-            entity.HasIndex(e => e.PhoneNumber, "UQ__Person__85FB4E3866C76B54").IsUnique();
+            entity.HasIndex(e => e.PhoneNumber, "UQ__Person__85FB4E38DAB5C7D0").IsUnique();
 
-            entity.HasIndex(e => e.Email, "UQ__Person__A9D105349F4E71F0").IsUnique();
+            entity.HasIndex(e => e.Email, "UQ__Person__A9D105346305769B").IsUnique();
 
             entity.Property(e => e.Email)
                 .HasMaxLength(150)
@@ -127,7 +155,18 @@ public partial class DevicesDbContext : DbContext
         {
             entity.ToTable("Position");
 
-            entity.HasIndex(e => e.Name, "UQ__Position__737584F6C649CA8C").IsUnique();
+            entity.HasIndex(e => e.Name, "UQ__Position__737584F62B4A0C67").IsUnique();
+
+            entity.Property(e => e.Name)
+                .HasMaxLength(100)
+                .IsUnicode(false);
+        });
+
+        modelBuilder.Entity<Role>(entity =>
+        {
+            entity.ToTable("Role");
+
+            entity.HasIndex(e => e.Name, "UQ__Role__737584F65B7E46CE").IsUnique();
 
             entity.Property(e => e.Name)
                 .HasMaxLength(100)
