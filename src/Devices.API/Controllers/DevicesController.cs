@@ -3,12 +3,14 @@ using Devices.API.DTO.DeviceDTOs;
 using Devices.API.DTO.EmployeeDTOs;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace Devices.API.Controllers;
 
 [ApiController]
 [Route("api/devices")]
-public class DevicesController
+public class DevicesController : ControllerBase
 {
     public readonly DevicesDbContext _context;
 
@@ -18,7 +20,8 @@ public class DevicesController
     }
     
     [HttpGet]
-    public async Task<IResult> GetAllDevices(CancellationToken cancellationToken)
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> GetAllDevices(CancellationToken cancellationToken)
     {
         try
         {
@@ -29,22 +32,22 @@ public class DevicesController
                     ))
                 .ToListAsync(cancellationToken);
             
-            return Results.Ok(devices);
+            return Ok(devices);
         }   
         catch (Exception ex)
         {
-            return Results.Problem(new ProblemDetails
-            {
-                Detail = ex.Message,
-                Title = "Something went wrong",
-                Status = StatusCodes.Status500InternalServerError,
-                Instance = "api/devices"
-            });
+            return Problem(
+                detail: ex.Message,
+                title: "Something went wrong",
+                statusCode: StatusCodes.Status500InternalServerError,
+                instance: "api/devices"
+            );
         }
     }
 
     [HttpGet("{id}")]
-    public async Task<IResult> GetDeviceById(int id, CancellationToken cancellationToken)
+    [Authorize]
+    public async Task<IActionResult> GetDeviceById(int id, CancellationToken cancellationToken)
     {
         try
         {
@@ -71,9 +74,28 @@ public class DevicesController
                         .FirstOrDefault()
                 })
                 .FirstOrDefaultAsync(cancellationToken);
-            
+
             if (device == null)
-                return Results.NotFound();
+                return NotFound();
+
+            var username = User.FindFirstValue("sub");
+            var role = User.FindFirstValue("role");
+
+            if (role != "Admin")
+            {
+                var userAccount = await _context.Accounts
+                    .Include(a => a.Employee)
+                    .FirstOrDefaultAsync(a => a.Username == username, cancellationToken);
+
+                if (userAccount == null)
+                    return Forbid();
+
+                var isAssigned = await _context.DeviceEmployees
+                    .AnyAsync(de => de.DeviceId == id && de.EmployeeId == userAccount.Employee.Id && de.ReturnDate == null, cancellationToken);
+
+                if (!isAssigned)
+                    return Forbid();
+            }
 
             var deviceDTO = new DeviceByIdDTO(
                 device.Name,
@@ -86,22 +108,22 @@ public class DevicesController
                     )
             );
             
-            return Results.Ok(deviceDTO);
+            return Ok(deviceDTO);
         }
         catch (Exception ex)
         {
-            return Results.Problem(new ProblemDetails
-            {
-                Detail = ex.Message,
-                Title = "Something went wrong",
-                Status = StatusCodes.Status500InternalServerError,
-                Instance = $"api/devices/{id}"
-            });
+            return Problem(
+                detail: ex.Message,
+                title: "Something went wrong",
+                statusCode: StatusCodes.Status500InternalServerError,
+                instance: $"api/devices/{id}"
+            );
         }
     }
 
     [HttpPost]
-    public async Task<IResult> AddDevice([FromBody] DeviceDTO device, CancellationToken cancellationToken)
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> AddDevice([FromBody] DeviceDTO device, CancellationToken cancellationToken)
     {
         try
         {
@@ -110,12 +132,11 @@ public class DevicesController
             var deviceType = await _context.DeviceTypes.FirstOrDefaultAsync(dt => dt.Name == device.DeviceTypeName, cancellationToken);
 
             if (deviceType == null)
-                return Results.Problem(new ProblemDetails
-                {
-                    Title = "Device type not found",
-                    Status = StatusCodes.Status404NotFound,
-                    Instance = "api/devices"
-                });
+                return Problem(
+                    title: "Device type not found",
+                    statusCode: StatusCodes.Status404NotFound,
+                    instance: "api/devices"
+                );
             
             var AdditionalProperties = JsonSerializer.Serialize(device.AdditionalProperties);
 
@@ -131,56 +152,75 @@ public class DevicesController
 
             if (rowsAffected != -1)
             {
-                return Results.Created($"api/devices/{newDevice.Id}", $"Device with id {newDevice.Id} was added successfully.");
+                return Created($"api/devices/{newDevice.Id}", $"Device with id {newDevice.Id} was added successfully.");
             }
             else
             {
-                return Results.Problem(new ProblemDetails
-                {
-                    Title = "Error while adding device",
-                    Status = StatusCodes.Status500InternalServerError,
-                    Instance = "api/devices"
-                });
+                return Problem(
+                    title: "Error while adding device",
+                    statusCode: StatusCodes.Status500InternalServerError,
+                    instance: "api/devices"
+                );
             }
         }
         catch (Exception ex)
         {
-            return Results.Problem(new ProblemDetails
-            {
-                Detail = ex.Message,
-                Title = "Something went wrong",
-                Status = StatusCodes.Status500InternalServerError,
-                Instance = "api/devices"
-            });
+            return Problem(
+                detail: ex.Message,
+                title: "Something went wrong",
+                statusCode: StatusCodes.Status500InternalServerError,
+                instance: "api/devices"
+            );
         }
     }
 
     [HttpPut("{id}")]
-    public async Task<IResult> UpdateDevice(int id, [FromBody] DeviceDTO device, CancellationToken cancellationToken)
+    [Authorize]
+    public async Task<IActionResult> UpdateDevice(int id, [FromBody] DeviceDTO device, CancellationToken cancellationToken)
     {
         try
         {
             var rowsAffected = -1;
             
-            var deviceToUpdate = await _context.Devices.FirstOrDefaultAsync(d => d.Id == id, cancellationToken);
+            var deviceToUpdate = await _context.Devices
+                .Include(d => d.DeviceEmployees
+                    .Where(de => de.ReturnDate == null))
+                .FirstOrDefaultAsync(d => d.Id == id, cancellationToken);
             
             if (deviceToUpdate == null)
-                return Results.Problem(new ProblemDetails
-                {
-                    Title = "Device not found",
-                    Status = StatusCodes.Status404NotFound,
-                    Instance = "api/devices"
-                });
-            
+                return Problem(
+                    title: "Device not found",
+                    statusCode: StatusCodes.Status404NotFound,
+                    instance: "api/devices"
+                );
+
+            var username = User.FindFirstValue("sub");
+            var role = User.FindFirstValue("role");
+
+            if (role != "Admin")
+            {
+                var userAccount = await _context.Accounts
+                    .Include(a => a.Employee)
+                    .FirstOrDefaultAsync(a => a.Username == username, cancellationToken);
+
+                if (userAccount == null)
+                    return Forbid();
+
+                var isAssigned = deviceToUpdate.DeviceEmployees
+                    .Any(de => de.EmployeeId == userAccount.Employee.Id && de.ReturnDate == null);
+
+                if (!isAssigned)
+                    return Forbid();
+            }
+
             var deviceType = await _context.DeviceTypes.FirstOrDefaultAsync(dt => dt.Name == device.DeviceTypeName, cancellationToken);
 
             if (deviceType == null)
-                return Results.Problem(new ProblemDetails
-                {
-                    Title = "Device type not found",
-                    Status = StatusCodes.Status404NotFound,
-                    Instance = "api/devices"
-                });
+                return Problem(
+                    title: "Device type not found",
+                    statusCode: StatusCodes.Status404NotFound,
+                    instance: "api/devices"
+                );
             
             deviceToUpdate.Name = device.Name;
             deviceToUpdate.DeviceTypeId = deviceType.Id;
@@ -191,32 +231,31 @@ public class DevicesController
 
             if (rowsAffected != -1)
             {
-                return Results.NoContent();
+                return NoContent();
             }
             else
             {
-                return Results.Problem(new ProblemDetails
-                {
-                    Title = "Error while updating device",
-                    Status = StatusCodes.Status500InternalServerError,
-                    Instance = "api/devices"
-                });
+                return Problem(
+                    title: "Error while updating device",
+                    statusCode: StatusCodes.Status500InternalServerError,
+                    instance: "api/devices"
+                );
             }
         }
         catch (Exception ex)
         {
-            return Results.Problem(new ProblemDetails
-            {
-                Detail = ex.Message,
-                Title = "Something went wrong",
-                Status = StatusCodes.Status500InternalServerError,
-                Instance = "api/devices"
-            });
+            return Problem(
+                detail: ex.Message,
+                title: "Something went wrong",
+                statusCode: StatusCodes.Status500InternalServerError,
+                instance: "api/devices"
+            );
         }
     }
 
     [HttpDelete("{id}")]
-    public async Task<IResult> DeleteDevice(int id, CancellationToken cancellationToken)
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> DeleteDevice(int id, CancellationToken cancellationToken)
     {
         try
         {
@@ -225,40 +264,36 @@ public class DevicesController
             var device = await _context.Devices.FirstOrDefaultAsync(d => d.Id == id, cancellationToken);
             
             if (device == null)
-                return Results.Problem(new ProblemDetails
-                {
-                    Title = "Device not found",
-                    Status = StatusCodes.Status404NotFound,
-                    Instance = "api/devices"
-                }); 
+                return Problem(
+                    title: "Device not found",
+                    statusCode: StatusCodes.Status404NotFound,
+                    instance: "api/devices"
+                ); 
             
             _context.Devices.Remove(device);
             rowsAffected = await _context.SaveChangesAsync(cancellationToken);
 
             if (rowsAffected != -1)
             {
-                return Results.NoContent();
+                return NoContent();
             }
             else
             {
-                return Results.Problem(new ProblemDetails
-                {
-                    Title = "Error while deleting device",
-                    Status = StatusCodes.Status500InternalServerError,
-                    Instance = "api/devices"
-                });
+                return Problem(
+                    title: "Error while deleting device",
+                    statusCode: StatusCodes.Status500InternalServerError,
+                    instance: "api/devices"
+                );
             }
         }
         catch (Exception ex)
         {
-            return Results.Problem(new ProblemDetails
-            {
-                Detail = ex.Message,
-                Title = "Something went wrong",
-                Status = StatusCodes.Status500InternalServerError,
-                Instance = "api/devices"
-            });
+            return Problem(
+                detail: ex.Message,
+                title: "Something went wrong",
+                statusCode: StatusCodes.Status500InternalServerError,
+                instance: "api/devices"
+            );
         }
     }
-    
 }
