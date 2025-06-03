@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Devices.API.Migrations
 {
     [DbContext(typeof(DevicesDbContext))]
-    [Migration("20250603112804_RegexPassCheck")]
+    [Migration("20250603113346_RegexPassCheck")]
     partial class RegexPassCheck
     {
         /// <inheritdoc />
