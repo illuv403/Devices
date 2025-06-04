@@ -110,24 +110,28 @@ public class AccountsController : ControllerBase
     [Authorize(Roles = "Admin")]
     public async Task<ActionResult<Account>> PostAccount([FromBody] CreateUserDTO userData, CancellationToken cancellationToken)
     {
-        var person = await _context.People
-            .FirstOrDefaultAsync(p => p.FirstName == userData.Name);
-
         var employee = await _context.Employees
-            .FirstOrDefaultAsync(e => e.PersonId == person.Id);
-       
+            .Include(e => e.Person)
+            .FirstOrDefaultAsync(e => e.Id == userData.EmployeeId, cancellationToken);
+
+        if (employee == null)
+        {
+            return BadRequest("Employee not found.");
+        }
+
         var account = new Account
         {
             Username = userData.Username,
             Password = _passwordHasher.HashPassword(null, userData.Password),
-            RoleId = 2,
-            EmployeeId = employee.Id
+            // 2 for user 1 for admin
+            RoleId = 2, 
+            EmployeeId = userData.EmployeeId
         };
 
         _context.Accounts.Add(account);
         await _context.SaveChangesAsync(cancellationToken);
 
-        return CreatedAtAction("GetAccount", new { id = account.Id }, account);
+        return CreatedAtAction(nameof(GetAccount), new { id = account.Id }, account);
     }
 
     // DELETE: api/Accounts/5
