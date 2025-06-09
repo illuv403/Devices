@@ -1,13 +1,10 @@
+using Devices.API.DTO.PersonDTOs;
+
 namespace Devices.API.DTO.EmployeeDTOs;
 
 public record EmployeeByIdDTO(
-    string PassportNumber,
-    string FirstName,
-    string? MiddleName,
-    string LastName,
-    string PhoneNumber,
-    string Email,
-    decimal Salary,
-    PositionDTO Position,
-    DateTime HireDate    
+    PersonDTO person, 
+    decimal salary,
+    string position,
+    string hireDate
     );
