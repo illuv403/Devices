@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Devices.API;
+using Devices.API.Helpers.Middleware;
 using Devices.API.Helpers.Options;
 using Devices.API.Services.Tokens;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -59,5 +60,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.UseMiddleware<AdditionalPropertiesMiddleware>();
 
 app.Run();

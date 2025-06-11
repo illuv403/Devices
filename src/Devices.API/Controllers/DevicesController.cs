@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
-using Microsoft.CodeAnalysis.Elfie.Serialization;
 
 namespace Devices.API.Controllers;
 
@@ -13,7 +12,7 @@ namespace Devices.API.Controllers;
 [Route("api/devices")]
 public class DevicesController : ControllerBase
 {
-    public readonly DevicesDbContext _context;
+    private readonly DevicesDbContext _context;
     private readonly ILogger<DevicesController> _logger;
 
     public DevicesController(DevicesDbContext context, ILogger<DevicesController> logger)
@@ -21,7 +20,7 @@ public class DevicesController : ControllerBase
         _context = context;
         _logger = logger;
     }
-    
+
     [HttpGet]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> GetAllDevices(CancellationToken cancellationToken)
@@ -29,26 +28,21 @@ public class DevicesController : ControllerBase
         try
         {
             _logger.LogInformation("Executing GET request on api/devices");
-            
+
             var devices = await _context.Devices
                 .Select(d => new ShortDevicesDTO(
                     d.Id,
                     d.Name
-                    ))
+                ))
                 .ToListAsync(cancellationToken);
-            
+
             _logger.LogInformation($"Retrieved {devices.Count} devices, execution succeeded");
             return Ok(devices);
-        }   
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"An error occured while executing GET request on api/devices:\n {ex.Message}");
-            return Problem(
-                detail: ex.Message,
-                title: "Something went wrong",
-                statusCode: StatusCodes.Status500InternalServerError,
-                instance: "api/devices"
-            );
+            _logger.LogError(ex, $"Error in GET /api/devices: {ex.Message}");
+            return Problem(title: "Something went wrong", detail: ex.Message);
         }
     }
 
@@ -59,20 +53,19 @@ public class DevicesController : ControllerBase
         try
         {
             _logger.LogInformation($"Executing GET request on api/devices/{id}");
-            
+
             var device = await _context.Devices
                 .Include(d => d.DeviceType)
-                .Include(d => d.DeviceEmployees
-                    .Where(de => de.ReturnDate == null))
+                .Include(d => d.DeviceEmployees.Where(de => de.ReturnDate == null))
                 .ThenInclude(de => de.Employee)
                 .ThenInclude(e => e.Person)
                 .Where(d => d.Id == id)
                 .Select(d => new
                 {
                     d.Name,
-                    IsEnabled = d.IsEnabled,
-                    AdditionalProperties = d.AdditionalProperties,
-                    TypeId = d.DeviceType.Id,
+                    d.IsEnabled,
+                    d.AdditionalProperties,
+                    Type = d.DeviceType.Name,
                     Employee = d.DeviceEmployees
                         .Where(de => de.ReturnDate == null)
                         .Select(de => new
@@ -110,7 +103,7 @@ public class DevicesController : ControllerBase
 
                 if (!isAssigned)
                 {
-                    _logger.LogInformation($"No devices assigned");
+                    _logger.LogInformation("No devices assigned to current user");
                     return Forbid();
                 }
             }
@@ -119,21 +112,16 @@ public class DevicesController : ControllerBase
                 device.Name,
                 device.IsEnabled,
                 JsonSerializer.Deserialize<Dictionary<string, string>>(device.AdditionalProperties),
-                device.TypeId
+                device.Type
             );
 
-            _logger.LogInformation($"Execution succeded");
+            _logger.LogInformation("Execution succeeded");
             return Ok(deviceDTO);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"An error occured while executing GET request on api/devices:\n {ex.Message}");
-            return Problem(
-                detail: ex.Message,
-                title: "Something went wrong",
-                statusCode: StatusCodes.Status500InternalServerError,
-                instance: $"api/devices/{id}"
-            );
+            _logger.LogError(ex, $"Error in GET /api/devices/{id}: {ex.Message}");
+            return Problem(title: "Something went wrong", detail: ex.Message);
         }
     }
 
@@ -142,27 +130,19 @@ public class DevicesController : ControllerBase
     {
         try
         {
-            _logger.LogInformation("Executing GET request on api/devices");
+            _logger.LogInformation("Executing GET request on api/devices/types");
 
-            var devicesTypes = await _context.DeviceTypes
-                .Select(dt => new DeviceTypesDTO(
-                    dt.Id, 
-                    dt.Name
-                    ))
+            var deviceTypes = await _context.DeviceTypes
+                .Select(dt => new DeviceTypesDTO(dt.Id, dt.Name))
                 .ToListAsync(cancellationToken);
-            
-            _logger.LogInformation($"Retrieved {devicesTypes.Count} device types, execution succeeded");
-            return Ok(devicesTypes);
-        }   
+
+            _logger.LogInformation($"Retrieved {deviceTypes.Count} device types, execution succeeded");
+            return Ok(deviceTypes);
+        }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"An error occured while executing GET request on api/devices/types:\n {ex.Message}");
-            return Problem(
-                detail: ex.Message,
-                title: "Something went wrong",
-                statusCode: StatusCodes.Status500InternalServerError,
-                instance: $"api/devices/types"
-            );
+            _logger.LogError(ex, $"Error in GET /api/devices/types: {ex.Message}");
+            return Problem(title: "Something went wrong", detail: ex.Message);
         }
     }
 
@@ -172,58 +152,37 @@ public class DevicesController : ControllerBase
     {
         try
         {
-            _logger.LogInformation($"Executing POST request on api/devices");
-            
-            var rowsAffected = -1;
-            
-            var deviceType = await _context.DeviceTypes.FirstOrDefaultAsync(dt => dt.Id == device.TypeId, cancellationToken);
+            _logger.LogInformation("Executing POST request on api/devices");
+
+            var deviceType = await _context.DeviceTypes
+                .FirstOrDefaultAsync(dt => dt.Name == device.Type, cancellationToken);
 
             if (deviceType == null)
             {
-                _logger.LogInformation($"No device type found with id {device.TypeId}");
-                return Problem(
-                    title: "Device type not found",
-                    statusCode: StatusCodes.Status404NotFound,
-                    instance: "api/devices"
-                );
+                _logger.LogInformation($"No device type found with name '{device.Type}'");
+                return NotFound("Device type not found");
             }
 
-            var AdditionalProperties = JsonSerializer.Serialize(device.AdditionalProperties);
+            var serializedProps = JsonSerializer.Serialize(device.AdditionalProperties);
 
             var newDevice = new Device
             {
                 Name = device.Name,
-                DeviceTypeId = deviceType.Id,
                 IsEnabled = device.IsEnabled,
-                AdditionalProperties = AdditionalProperties
+                DeviceTypeId = deviceType.Id,
+                AdditionalProperties = serializedProps
             };
-            _context.Devices.Add(newDevice);
-            rowsAffected = await _context.SaveChangesAsync(cancellationToken);
 
-            if (rowsAffected != -1)
-            {
-                _logger.LogInformation($"Execution succeded");
-                return Created($"api/devices/{newDevice.Id}", $"Device with id {newDevice.Id} was added successfully.");
-            }
-            else
-            {
-                _logger.LogInformation($"Execution failed");
-                return Problem(
-                    title: "Error while adding device",
-                    statusCode: StatusCodes.Status500InternalServerError,
-                    instance: "api/devices"
-                );
-            }
+            _context.Devices.Add(newDevice);
+            await _context.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation($"Device with ID {newDevice.Id} added successfully");
+            return Created($"api/devices/{newDevice.Id}", $"Device with ID {newDevice.Id} added.");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"An error occured while executing POST request on api/devices:\n {ex.Message}");
-            return Problem(
-                detail: ex.Message,
-                title: "Something went wrong",
-                statusCode: StatusCodes.Status500InternalServerError,
-                instance: "api/devices"
-            );
+            _logger.LogError(ex, $"Error in POST /api/devices: {ex.Message}");
+            return Problem(title: "Something went wrong", detail: ex.Message);
         }
     }
 
@@ -234,22 +193,15 @@ public class DevicesController : ControllerBase
         try
         {
             _logger.LogInformation($"Executing PUT request on api/devices/{id}");
-            
-            var rowsAffected = -1;
-            
+
             var deviceToUpdate = await _context.Devices
-                .Include(d => d.DeviceEmployees
-                    .Where(de => de.ReturnDate == null))
+                .Include(d => d.DeviceEmployees.Where(de => de.ReturnDate == null))
                 .FirstOrDefaultAsync(d => d.Id == id, cancellationToken);
 
             if (deviceToUpdate == null)
             {
                 _logger.LogInformation($"No device found with id {id}");
-                return Problem(
-                    title: "Device not found",
-                    statusCode: StatusCodes.Status404NotFound,
-                    instance: "api/devices"
-                );
+                return NotFound("Device not found");
             }
 
             var username = User.FindFirstValue("sub");
@@ -261,65 +213,37 @@ public class DevicesController : ControllerBase
                     .Include(a => a.Employee)
                     .FirstOrDefaultAsync(a => a.Username == username, cancellationToken);
 
-                if (userAccount == null)
+                if (userAccount == null || !deviceToUpdate.DeviceEmployees
+                    .Any(de => de.EmployeeId == userAccount.Employee.Id))
                 {
-                    _logger.LogInformation($"No account found with username {username}");
-                    return Forbid();
-                }
-
-                var isAssigned = deviceToUpdate.DeviceEmployees
-                    .Any(de => de.EmployeeId == userAccount.Employee.Id && de.ReturnDate == null);
-                
-                if (!isAssigned)
-                {
-                    _logger.LogInformation($"No devices assigned");
+                    _logger.LogInformation("Forbidden device access");
                     return Forbid();
                 }
             }
 
-            var deviceType = await _context.DeviceTypes.FirstOrDefaultAsync(dt => dt.Id == device.TypeId, cancellationToken);
+            var deviceType = await _context.DeviceTypes
+                .FirstOrDefaultAsync(dt => dt.Name == device.Type, cancellationToken);
 
             if (deviceType == null)
             {
-                _logger.LogInformation($"No device type found with id {id}");
-                return Problem(
-                    title: "Device type not found",
-                    statusCode: StatusCodes.Status404NotFound,
-                    instance: "api/devices"
-                );
+                _logger.LogInformation($"No device type found with name '{device.Type}'");
+                return NotFound("Device type not found");
             }
 
             deviceToUpdate.Name = device.Name;
-            deviceToUpdate.DeviceTypeId = deviceType.Id;
             deviceToUpdate.IsEnabled = device.IsEnabled;
+            deviceToUpdate.DeviceTypeId = deviceType.Id;
             deviceToUpdate.AdditionalProperties = JsonSerializer.Serialize(device.AdditionalProperties);
-            
-            rowsAffected = await _context.SaveChangesAsync(cancellationToken);
 
-            if (rowsAffected != -1)
-            {
-                _logger.LogInformation($"Execution succeded");
-                return NoContent();
-            }
-            else
-            {
-                _logger.LogInformation($"Execution failed");
-                return Problem(
-                    title: "Error while updating device",
-                    statusCode: StatusCodes.Status500InternalServerError,
-                    instance: "api/devices"
-                );
-            }
+            await _context.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation("Device updated successfully");
+            return NoContent();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"An error occured while executing PUT request on api/devices/{id}:\n {ex.Message}");
-            return Problem(
-                detail: ex.Message,
-                title: "Something went wrong",
-                statusCode: StatusCodes.Status500InternalServerError,
-                instance: "api/devices"
-            );
+            _logger.LogError(ex, $"Error in PUT /api/devices/{id}: {ex.Message}");
+            return Problem(title: "Something went wrong", detail: ex.Message);
         }
     }
 
@@ -330,48 +254,25 @@ public class DevicesController : ControllerBase
         try
         {
             _logger.LogInformation($"Executing DELETE request on api/devices/{id}");
-            
-            var rowsAffected = -1;
-            
+
             var device = await _context.Devices.FirstOrDefaultAsync(d => d.Id == id, cancellationToken);
 
             if (device == null)
             {
                 _logger.LogInformation($"No device found with id {id}");
-                return Problem(
-                    title: "Device not found",
-                    statusCode: StatusCodes.Status404NotFound,
-                    instance: "api/devices"
-                );
+                return NotFound("Device not found");
             }
 
             _context.Devices.Remove(device);
-            rowsAffected = await _context.SaveChangesAsync(cancellationToken);
+            await _context.SaveChangesAsync(cancellationToken);
 
-            if (rowsAffected != -1)
-            {
-                _logger.LogInformation($"Execution succeded");
-                return NoContent();
-            }
-            else
-            {
-                _logger.LogInformation($"Execution failed");
-                return Problem(
-                    title: "Error while deleting device",
-                    statusCode: StatusCodes.Status500InternalServerError,
-                    instance: "api/devices"
-                );
-            }
+            _logger.LogInformation("Device deleted successfully");
+            return NoContent();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"An error occured while executing DELETE request on api/devices/{id}:\n {ex.Message}");
-            return Problem(
-                detail: ex.Message,
-                title: "Something went wrong",
-                statusCode: StatusCodes.Status500InternalServerError,
-                instance: "api/devices"
-            );
+            _logger.LogError(ex, $"Error in DELETE /api/devices/{id}: {ex.Message}");
+            return Problem(title: "Something went wrong", detail: ex.Message);
         }
     }
 }
